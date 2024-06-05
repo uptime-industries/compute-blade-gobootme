@@ -9,8 +9,40 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// FIXME: add AMD64 support
-func HandlePkt(ctx context.Context, serverIP net.IP, ipxeTarget string) func(conn net.PacketConn, peer net.Addr, pkt *dhcpv4.DHCPv4) {
+func isRaspberryPiEEPROM(pkt *dhcpv4.DHCPv4) bool {
+	// Legacy boot option is used by the EEPROM
+	if pkt.ClientArch()[0] != iana.INTEL_X86PC {
+		return false
+	}
+
+	// Check if mac address is from a Raspberry Pi
+	macPrefix := pkt.ClientHWAddr.String()[0:8]
+
+	// Warning: This might be incomplete but we don't really have a better way
+	// Taken from https://maclookup.app/vendors/raspberry-pi-trading-ltd (01.06.2024)
+	switch macPrefix {
+	case "28:cd:c1":
+		return true
+	case "2c:cf:67":
+		return true
+	case "3a:35:41":
+		return true
+	case "d8:3a:dd":
+		return true
+	case "dc:a6:32":
+		return true
+	case "e4:5f:01":
+		return true
+	}
+
+	return false
+}
+
+func HandlePkt(
+	ctx context.Context,
+	serverIP net.IP,
+	ipxeTarget string,
+) func(conn net.PacketConn, peer net.Addr, pkt *dhcpv4.DHCPv4) {
 	return func(conn net.PacketConn, peer net.Addr, pkt *dhcpv4.DHCPv4) {
 		if pkt.MessageType() != dhcpv4.MessageTypeDiscover {
 			zerolog.Ctx(ctx).
@@ -37,8 +69,8 @@ func HandlePkt(ctx context.Context, serverIP net.IP, ipxeTarget string) func(con
 			return
 		}
 
-		if pkt.ClientArch()[0] != iana.EFI_ARM64 {
-			zerolog.Ctx(ctx).Info().Msg("packet is not an arm64 request")
+		if pkt.ClientArch()[0] != iana.EFI_ARM64 && !isRaspberryPiEEPROM(pkt) {
+			zerolog.Ctx(ctx).Info().Msg("packet is not an arm64 UEFI request or coming from the RaspberryPi EEPROM")
 			return
 		}
 
@@ -61,10 +93,12 @@ func HandlePkt(ctx context.Context, serverIP net.IP, ipxeTarget string) func(con
 		// Check if the request is coming from our custom iPXE script
 		userClass := pkt.GetOneOption(dhcpv4.OptionUserClassInformation)
 		if string(userClass) == "gobootme" {
+			// Override the boot filename with the http target script
 			resp.UpdateOption(dhcpv4.OptBootFileName(ipxeTarget))
 		} else {
+			// Set the TFTP server IP for any other request
 			resp.UpdateOption(dhcpv4.OptTFTPServerName(serverIP.String()))
-			resp.UpdateOption(dhcpv4.OptBootFileName("arm64.efi"))
+			resp.UpdateOption(dhcpv4.OptBootFileName("snp.efi"))
 		}
 
 		_, err = conn.WriteTo(resp.ToBytes(), peer)
@@ -77,6 +111,7 @@ func HandlePkt(ctx context.Context, serverIP net.IP, ipxeTarget string) func(con
 			Str("source", pkt.ClientHWAddr.String()).
 			Str("server", resp.TFTPServerName()).
 			Str("boot_filename", resp.BootFileNameOption()).
+			Bool("is_raspberry_pi_eeprom", isRaspberryPiEEPROM(pkt)).
 			Msg("offered boot response")
 	}
 }
