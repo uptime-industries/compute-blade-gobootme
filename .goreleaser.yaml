@@ -4,21 +4,20 @@ before:
   hooks:
   - go generate ./...
 builds:
-  - env:
+  - id: gobootme
+    env:
     - CGO_ENABLED=0
     goos:
     - linux
     goarch:
     - arm64
+    - amd64
     binary: gobootme
-    main: ./cmd/gobootme/main.go
-    id: gobootme
+    main: ./cmd/gobootme
 
-# .goreleaser.yaml
 kos:
-- id: ko-gobootme
-  build: gobootme
-  repository: ghcr.io/xvzf/gobootme
+- repository: ghcr.io/xvzf/gobootme
+  main: ./cmd/gobootme
   platforms:
   - linux/amd64
   - linux/arm64
@@ -26,4 +25,3 @@ kos:
   - latest
   - '{{.Tag}}'
   - '{{if not .Prerelease}}stable{{end}}'
-

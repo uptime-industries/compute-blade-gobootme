@@ -12,17 +12,20 @@ import (
 
 	"github.com/insomniacslk/dhcp/dhcpv4/server4"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/sethvargo/go-envconfig"
-	"github.com/xvzf/gobootme/internal/ipxe"
 	"github.com/xvzf/gobootme/internal/proxydhcp"
 	"github.com/xvzf/gobootme/internal/tftp"
 	"golang.org/x/sync/errgroup"
 )
 
 type Config struct {
-	IpxeBootEndpoint   string `env:"IPXE_BOOT_ENDPOINT"`
-	ProxyDhcpInterface string `env:"PROXY_DHCP_INTERFACE, default=eth0"`
-	HttpPort           int    `env:"HTTP_PORT, default=8082"`
+	LogLevel             string `env:"LOG_LEVEL, default=info"`
+	LogMode              string `env:"LOG_MODE, default=console"`
+	EnableProxyDhcp      bool   `env:"ENABLE_PROXY_DHCP, default=true"`
+	ProxyDhcpInterface   string `env:"PROXY_DHCP_INTERFACE, default=eth0"`
+	IpxeBootEndpointAuto bool   `env:"IPXE_BOOT_ENDPOINT_AUTO, default=true"`
+	IpxeBootEndpoint     string `env:"IPXE_BOOT_ENDPOINT"`
 }
 
 func requestLogger(next http.Handler) http.Handler {
@@ -41,15 +44,33 @@ func requestLogger(next http.Handler) http.Handler {
 }
 
 func main() {
+	var logger zerolog.Logger
 	ctx, cancel := context.WithCancel(context.Background())
-	logger := zerolog.New(zerolog.NewConsoleWriter()).With().Timestamp().Logger()
-	ctx = logger.WithContext(ctx)
 
 	defer cancel()
 	var config Config
 	if err := envconfig.Process(ctx, &config); err != nil {
-		zerolog.Ctx(ctx).Fatal().Err(err).Msg("Could not parse config")
+		log.Fatal().Err(err).Msg("Could not parse environment variables")
 	}
+
+	// Setup logger
+	if config.LogMode == "json" {
+		logger = zerolog.New(os.Stdout).With().Timestamp().Logger()
+	} else {
+		logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout}).With().Timestamp().Logger()
+	}
+	switch config.LogLevel {
+	case "debug":
+		logger = logger.Level(zerolog.DebugLevel)
+	case "info":
+		logger = logger.Level(zerolog.InfoLevel)
+	case "warn":
+		logger = logger.Level(zerolog.WarnLevel)
+	case "error":
+		logger = logger.Level(zerolog.ErrorLevel)
+	}
+
+	ctx = logger.WithContext(ctx)
 
 	// Resolve interface IP
 	var interfaceIP net.IP
@@ -88,28 +109,33 @@ func main() {
 	grp, ctx := errgroup.WithContext(ctx)
 
 	// Launch ProxyDHCP server
+
+	if config.IpxeBootEndpointAuto {
+		config.IpxeBootEndpoint = fmt.Sprintf("http://%s:8080/boot.ipxe", interfaceIP.String())
+	}
+
 	proxyDhcpHandleFunc := proxydhcp.HandlePkt(
 		ctx,
 		interfaceIP,
-		fmt.Sprintf(
-			"http://%s:%d/ipxe?mac=${mac}&buildarch=${buildarch}&serial=${serial}",
-			interfaceIP.String(),
-			config.HttpPort,
-		),
+		config.IpxeBootEndpoint,
 	)
-	proxyDhcpServer, err := server4.NewServer(config.ProxyDhcpInterface, nil, proxyDhcpHandleFunc)
-	if err != nil {
-		zerolog.Ctx(ctx).Fatal().Err(err).Msg("Could not create ProxyDHCP server")
+	if config.EnableProxyDhcp {
+		proxyDhcpServer, err := server4.NewServer(config.ProxyDhcpInterface, nil, proxyDhcpHandleFunc)
+		if err != nil {
+			zerolog.Ctx(ctx).Fatal().Err(err).Msg("Could not create ProxyDHCP server")
+		}
+		grp.Go(func() error {
+			zerolog.Ctx(ctx).Info().Msgf("Starting ProxyDHCP server on %s", config.ProxyDhcpInterface)
+			return proxyDhcpServer.Serve()
+		})
+		grp.Go(func() error {
+			<-ctx.Done()
+			zerolog.Ctx(ctx).Info().Msg("Shutting down ProxyDHCP server")
+			return proxyDhcpServer.Close()
+		})
+	} else {
+		zerolog.Ctx(ctx).Info().Msg("ProxyDHCP server is disabled")
 	}
-	grp.Go(func() error {
-		zerolog.Ctx(ctx).Info().Msgf("Starting ProxyDHCP server on %s", config.ProxyDhcpInterface)
-		return proxyDhcpServer.Serve()
-	})
-	grp.Go(func() error {
-		<-ctx.Done()
-		zerolog.Ctx(ctx).Info().Msg("Shutting down ProxyDHCP server")
-		return proxyDhcpServer.Close()
-	})
 
 	// Start tftp server
 	tftpServer := tftp.NewIpxeServer()
@@ -122,31 +148,6 @@ func main() {
 		zerolog.Ctx(ctx).Info().Msg("Shutting down TFTP server")
 		tftpServer.Shutdown()
 		return nil
-	})
-
-	// Launch iPXE boot endpoint
-	zerolog.Ctx(ctx).Info().Msgf("iPXE boot config endpoint: %s", config.IpxeBootEndpoint)
-	bootRetriever := ipxe.NewIpxeBootRetriever(config.IpxeBootEndpoint)
-	mux := http.NewServeMux()
-	mux.HandleFunc("/ipxe", bootRetriever.HttpHandle)
-
-	ipxeServer := &http.Server{
-		Addr:    fmt.Sprintf("%s:%d", interfaceIP.String(), config.HttpPort),
-		Handler: requestLogger(mux),
-		BaseContext: func(_ net.Listener) context.Context {
-			return ctx
-		},
-	}
-	grp.Go(func() error {
-		zerolog.Ctx(ctx).Info().Msgf("Starting iPXE boot config server on %s:%d", interfaceIP.String(), config.HttpPort)
-		return ipxeServer.ListenAndServe()
-	})
-	grp.Go(func() error {
-		<-ctx.Done()
-		zerolog.Ctx(ctx).Info().Msg("Shutting down iPXE boot config server")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		return ipxeServer.Shutdown(shutdownCtx)
 	})
 
 	// Wait for all goroutines to finish
