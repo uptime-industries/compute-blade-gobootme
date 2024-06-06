@@ -68,10 +68,6 @@ jobs:
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3
 
-      # Build fanunit firmware
-      - name: Build FanUnit Firmware
-        run: make build-fanunit
-
       # Run goreleaser
       - name: Run Goreleaser
         uses: goreleaser/goreleaser-action@v5
