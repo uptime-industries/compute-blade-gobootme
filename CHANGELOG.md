@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/xvzf/gobootme/compare/v1.0.1...v1.0.2) (2024-06-15)
+
+
+### Bug Fixes
+
+* predictable docker build ([#6](https://github.com/xvzf/gobootme/issues/6)) ([19af7d7](https://github.com/xvzf/gobootme/commit/19af7d7059b8c8ecd61d5c71444bdff66aafd274))
+
 ## [1.0.1](https://github.com/xvzf/gobootme/compare/v1.0.0...v1.0.1) (2024-06-06)
 
 
