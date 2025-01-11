@@ -42,8 +42,7 @@ goto loop
 # Got a filename from ProxyDHCP, that's the actual boot script,
 # off we go!
 :boot
-chain ${filename} || goto failboot
-
+chain ${filename} || goto retry
 
 :failboot
 echo "Failed to boot from ${filename}, rebooting in 5 seconds..."

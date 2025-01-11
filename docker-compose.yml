@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  gobootme:
+    image: ghcr.io/xvzf/gobootme:latest
+    container_name: gobootme
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+    environment:
+      - LOG_LEVEL=info
+      - LOG_MODE=json
+      - IPXE_BOOT_ENDPOINT_AUTO=true
+      - ENABLE_PROXY_DHCP=false
+      - PROXY_DHCP_INTERFACE=eth0
+
+  matchbox:
+    image: quay.io/poseidon/matchbox:latest
+    container_name: matchbox
+    restart: unless-stopped
+    command:
+      - -data-path=/var/lib/matchbox/data
+      - -assets-path=/var/lib/matchbox/assets
+      - -address=0.0.0.0:8080
+      - -log-level=debug
+    volumes:
+      - ./matchbox/assets:/var/lib/matchbox/assets
+      - ./matchbox/data:/var/lib/matchbox/data
+    ports:
+      - "8080:8080"

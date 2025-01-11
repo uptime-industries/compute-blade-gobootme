@@ -42,6 +42,7 @@ func HandlePkt(
 	ctx context.Context,
 	serverIP net.IP,
 	ipxeTarget string,
+	efiBootfiles string,
 ) func(conn net.PacketConn, peer net.Addr, pkt *dhcpv4.DHCPv4) {
 	return func(conn net.PacketConn, peer net.Addr, pkt *dhcpv4.DHCPv4) {
 		if pkt.MessageType() != dhcpv4.MessageTypeDiscover {
@@ -69,8 +70,13 @@ func HandlePkt(
 			return
 		}
 
-		if pkt.ClientArch()[0] != iana.EFI_ARM64 && !isRaspberryPiEEPROM(pkt) {
-			zerolog.Ctx(ctx).Info().Msg("packet is not an arm64 UEFI request or coming from the RaspberryPi EEPROM")
+		arch := pkt.ClientArch()[0]
+		if !isRaspberryPiEEPROM(pkt) && !(arch == iana.EFI_ARM64 || arch == iana.EFI_ARM64_HTTP) {
+			zerolog.Ctx(ctx).Info().
+				Str("arch", pkt.ClientArch()[0].String()).
+				Str("client ip", pkt.ClientIPAddr.String()).
+				Str("client mac", pkt.ClientHWAddr.String()).
+				Msg("packet is not an arm64 UEFI / HTTP request or coming from the RaspberryPi EEPROM")
 			return
 		}
 
@@ -91,10 +97,13 @@ func HandlePkt(
 		}
 
 		// Check if the request is coming from our custom iPXE script
+		// Override the boot filename with the http target script
+		// Override the HTTP boot filename since we can target matchbox directly too
 		userClass := pkt.GetOneOption(dhcpv4.OptionUserClassInformation)
 		if string(userClass) == "gobootme" {
-			// Override the boot filename with the http target script
 			resp.UpdateOption(dhcpv4.OptBootFileName(ipxeTarget))
+		} else if arch == iana.EFI_ARM64_HTTP {
+			resp.UpdateOption(dhcpv4.OptBootFileName(efiBootfiles))
 		} else {
 			// Set the TFTP server IP for any other request
 			resp.UpdateOption(dhcpv4.OptTFTPServerName(serverIP.String()))
@@ -108,6 +117,7 @@ func HandlePkt(
 		}
 		zerolog.Ctx(ctx).
 			Info().
+			Str("arch", pkt.ClientArch()[0].String()).
 			Str("source", pkt.ClientHWAddr.String()).
 			Str("server", resp.TFTPServerName()).
 			Str("boot_filename", resp.BootFileNameOption()).
