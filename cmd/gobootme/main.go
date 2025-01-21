@@ -23,9 +23,10 @@ type Config struct {
 	LogLevel             string `env:"LOG_LEVEL, default=info"`
 	LogMode              string `env:"LOG_MODE, default=console"`
 	EnableProxyDhcp      bool   `env:"ENABLE_PROXY_DHCP, default=true"`
-	ProxyDhcpInterface   string `env:"PROXY_DHCP_INTERFACE, default=eth0"`
+	ProxyDhcpInterface   string `env:"PROXY_DHCP_INTERFACE, default=en8"`
 	IpxeBootEndpointAuto bool   `env:"IPXE_BOOT_ENDPOINT_AUTO, default=true"`
 	IpxeBootEndpoint     string `env:"IPXE_BOOT_ENDPOINT"`
+	EFIBootEndpoint      string `env:"EFI_BOOT_ENDPOINT"`
 }
 
 func requestLogger(next http.Handler) http.Handler {
@@ -109,6 +110,7 @@ func main() {
 	grp, ctx := errgroup.WithContext(ctx)
 
 	// Launch ProxyDHCP server
+	config.EFIBootEndpoint = fmt.Sprintf("http://%s:8080/assets/bootfiles/snp.efi", interfaceIP.String())
 
 	if config.IpxeBootEndpointAuto {
 		config.IpxeBootEndpoint = fmt.Sprintf("http://%s:8080/boot.ipxe", interfaceIP.String())
@@ -118,6 +120,7 @@ func main() {
 		ctx,
 		interfaceIP,
 		config.IpxeBootEndpoint,
+		config.EFIBootEndpoint,
 	)
 	if config.EnableProxyDhcp {
 		proxyDhcpServer, err := server4.NewServer(config.ProxyDhcpInterface, nil, proxyDhcpHandleFunc)

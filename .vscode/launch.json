@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Attach to Server",
+      "type": "go",
+      "request": "attach",
+      "mode": "remote",
+      "remotePath": "", // Leave empty if you're debugging locally
+      "port": 2345,
+      "host": "127.0.0.1"
+    }
+  ]
+}

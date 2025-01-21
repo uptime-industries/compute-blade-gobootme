@@ -1,0 +1,12 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "sudo-wrapper",
+      "type": "shell",
+      "command": "sudo",
+      "args": ["true"],
+      "problemMatcher": []
+    }
+  ]
+}
