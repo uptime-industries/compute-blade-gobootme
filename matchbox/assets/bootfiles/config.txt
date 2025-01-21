@@ -18,3 +18,4 @@ dtoverlay=tpm-slb9670
 dtparam=i2c_arm=on
 dtoverlay=i2c-rtc,ds3231
 dtparam=sd=off
+boot_order=0xF4627

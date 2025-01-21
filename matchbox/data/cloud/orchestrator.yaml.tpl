@@ -1,30 +1,55 @@
 #cloud-config
-hostname: orchestrator-bootstrapper
-manage_etc_hosts: true
 
+# Create orchestrator user
 users:
-  - name: admin
-    gecos: "Admin User"
-    sudo: ALL=(ALL) NOPASSWD:ALL
+  - name: orchestrator
     shell: /bin/bash
-    ssh_authorized_keys:
-      - "ssh-rsa AAAAB3Nza..."
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: wheel
+    home: /home/orchestrator
 
-package_update: true
-package_upgrade: true
-
+# Install necessary utilities
 packages:
   - curl
-  - vim
-  - htop
+  - wget
+  - tar
+  - gzip
+  - dpkg
+  - systemd
+  - raspberrypi-firmware  # Install raspberrypi-firmware for vcgencmd
 
+# Run commands to get Raspberry Pi information and setup
 runcmd:
-  - echo "Downloading and installing orchestrator-backend and orchestrator-agent packages..."
-  - wget -q -O /tmp/orchestrator-backend.deb http://192.168.11.151:8080/assets/orchestrator-backend.deb # TODO: Replace with GH asset package URL
-  - wget -q -O /tmp/orchestrator-agent.deb http://192.168.11.151:8080/assets/orchestrator-agent.deb # TODO: Replace with GH asset package URL
-  - dpkg -i /tmp/orchestrator-backend.deb
-  - dpkg -i /tmp/orchestrator-agent.deb
+  - echo "Gathering Raspberry Pi information..."
+  - uname -a > /home/orchestrator/pi_info.txt
+  - vcgencmd measure_temp > /home/orchestrator/pi_temp.txt
+  - vcgencmd get_mem arm > /home/orchestrator/pi_memory.txt
+  - vcgencmd get_mem gpu > /home/orchestrator/pi_gpu_memory.txt
+  - echo "Raspberry Pi info collected."
+
+# Download the .deb files from GitHub
+  - echo "Downloading Debian packages from GitHub..."
+  - curl -L https://github.com/yourusername/yourrepository/releases/download/v1.0/orchestrator-backend.deb -o /home/orchestrator/orchestrator-backend.deb
+  - curl -L https://github.com/yourusername/yourrepository/releases/download/v1.0/orchestrator-agent.deb -o /home/orchestrator/orchestrator-agent.deb
+  - echo "Debian packages downloaded."
+
+# Install the downloaded .deb packages
+  - echo "Installing orchestrator-backend.deb..."
+  - dpkg -i /home/orchestrator/orchestrator-backend.deb
+  - echo "Installing orchestrator-agent.deb..."
+  - dpkg -i /home/orchestrator/orchestrator-agent.deb
+
+# Fix any missing dependencies if necessary
+  - echo "Fixing any missing dependencies..."
+  - apt-get install -f -y
+
+# Enable and start the services
+  - echo "Enabling and starting orchestrator-backend service..."
   - systemctl enable orchestrator-backend
-  - systemctl enable orchestrator-agent
   - systemctl start orchestrator-backend
+  - echo "Enabling and starting orchestrator-agent service..."
+  - systemctl enable orchestrator-agent
   - systemctl start orchestrator-agent
+
+# Set file ownership to orchestrator user
+  - chown -R orchestrator:orchestrator /home/orchestrator
